@@ -4,6 +4,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/operator-framework/operator-registry/cmd/opm/alpha/bundle"
+	"github.com/operator-framework/operator-registry/cmd/opm/alpha/delta"
 	"github.com/operator-framework/operator-registry/cmd/opm/alpha/list"
 	rendergraph "github.com/operator-framework/operator-registry/cmd/opm/alpha/render-graph"
 	"github.com/operator-framework/operator-registry/cmd/opm/alpha/template"
@@ -23,6 +24,7 @@ func NewCmd() *cobra.Command {
 		list.NewCmd(),
 		rendergraph.NewCmd(),
 		template.NewCmd(),
+		delta.NewDeltaCmd(),
 	)
 	return runCmd
 }
