@@ -55,21 +55,6 @@ and a 'composite template' file`,
 				log.Fatalf(err.Error())
 			}
 			defer tempCatalog.Close()
-			// catalogURI, err := url.ParseRequestURI(catalogFile)
-			// if err != nil {
-			// 	tempCatalog, err = os.Open(catalogFile)
-			// 	if err != nil {
-			// 		log.Fatalf("opening catalog config file %q: %v", catalogFile, err)
-			// 	}
-			// 	defer tempCatalog.Close()
-			// } else {
-			// 	tempResp, err := http.Get(catalogURI.String())
-			// 	if err != nil {
-			// 		log.Fatalf("fetching remote catalog config file %q: %v", catalogFile, err)
-			// 	}
-			// 	tempCatalog = tempResp.Body
-			// 	defer tempCatalog.Close()
-			// }
 
 			template := composite.NewTemplate(
 				composite.WithCatalogFile(tempCatalog),

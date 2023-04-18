@@ -144,7 +144,7 @@ func (t *Template) Render(ctx context.Context, validate bool) error {
 			}
 		} else {
 			allowedComponents := []string{}
-			for k := range builderMap {
+			for k := range *catalogBuilderMap {
 				allowedComponents = append(allowedComponents, k)
 			}
 			return fmt.Errorf("building component %q: component does not exist in the catalog configuration. Available components are: %s", component.Name, allowedComponents)
