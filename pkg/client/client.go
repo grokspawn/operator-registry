@@ -81,6 +81,8 @@ func (c *Client) GetBundleThatProvides(ctx context.Context, group, version, kind
 }
 
 func (c *Client) ListBundles(ctx context.Context) (*BundleIterator, error) {
+	time.Sleep(60 * time.Second)
+
 	stream, err := c.Registry.ListBundles(ctx, &api.ListBundlesRequest{})
 	if err != nil {
 		return nil, err
