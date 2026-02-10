@@ -31,6 +31,7 @@ import (
 type serve struct {
 	configDir             string
 	cacheDir              string
+	cacheFormat           string
 	cacheOnly             bool
 	cacheEnforceIntegrity bool
 
@@ -87,6 +88,7 @@ will not be reflected in the served content.
 	cmd.Flags().StringVar(&s.cacheDir, "cache-dir", "", "if set, sync and persist server cache directory")
 	cmd.Flags().BoolVar(&s.cacheOnly, "cache-only", false, "sync the serve cache and exit without serving")
 	cmd.Flags().BoolVar(&s.cacheEnforceIntegrity, "cache-enforce-integrity", false, "exit with error if cache is not present or has been invalidated. (default: true when --cache-dir is set and --cache-only is false, false otherwise), ")
+	cmd.Flags().StringVar(&s.cacheFormat, "cache-format", "", "format used for the backend cache")
 	return cmd
 }
 
@@ -132,7 +134,7 @@ func (s *serve) run(ctx context.Context) error {
 		"cache":   s.cacheDir,
 	})
 
-	store, err := cache.New(s.cacheDir, cache.WithLog(mainLogger))
+	store, err := cache.New(s.cacheDir, cache.WithLog(mainLogger), cache.WithFormat(s.cacheFormat))
 	if err != nil {
 		return err
 	}
