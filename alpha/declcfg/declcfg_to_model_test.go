@@ -571,6 +571,52 @@ func TestConvertToModel(t *testing.T) {
 				})},
 			},
 		},
+		{
+			name:      "Success/BundleWithBuildMetadataExtraction",
+			assertion: require.NoError,
+			cfg: DeclarativeConfig{
+				Packages: []Package{newTestPackage("foo", "alpha", svgSmallCircle)},
+				Channels: []Channel{newTestChannel("foo", "alpha", ChannelEntry{Name: "foo-v1.3.1-0.1776877589.p"})},
+				Bundles: []Bundle{newTestBundle("foo", "1.3.1", func(b *Bundle) {
+					// Bundle has build metadata in the version field (e.g., from SQLite->FBC migration)
+					// After extraction, the normalized name format is: <pkg>-v<version>-<release>
+					b.Name = "foo-v1.3.1-0.1776877589.p"
+					b.Properties = []property.Property{
+						property.MustBuildPackage("foo", "1.3.1+0.1776877589.p"),
+					}
+				})},
+			},
+		},
+		{
+			name:      "Success/BundleWithExplicitReleaseNoExtraction",
+			assertion: require.NoError,
+			cfg: DeclarativeConfig{
+				Packages: []Package{newTestPackage("foo", "alpha", svgSmallCircle)},
+				Channels: []Channel{newTestChannel("foo", "alpha", ChannelEntry{Name: "foo-v1.3.1-existing.release"})},
+				Bundles: []Bundle{newTestBundle("foo", "1.3.1", func(b *Bundle) {
+					// Bundle already has explicit release, should not be modified
+					// Normalized name format: <pkg>-v<version>-<release>
+					b.Name = "foo-v1.3.1-existing.release"
+					b.Properties = []property.Property{
+						property.MustBuildPackageRelease("foo", "1.3.1", "existing.release"),
+					}
+				})},
+			},
+		},
+		{
+			name:      "Success/BundleWithoutBuildMetadata",
+			assertion: require.NoError,
+			cfg: DeclarativeConfig{
+				Packages: []Package{newTestPackage("foo", "alpha", svgSmallCircle)},
+				Channels: []Channel{newTestChannel("foo", "alpha", ChannelEntry{Name: testBundleName("foo", "0.1.0")})},
+				Bundles: []Bundle{newTestBundle("foo", "0.1.0", func(b *Bundle) {
+					// Normal bundle without build metadata should work as before
+					b.Properties = []property.Property{
+						property.MustBuildPackage("foo", "0.1.0"),
+					}
+				})},
+			},
+		},
 	}
 
 	for _, s := range specs {
@@ -615,6 +661,45 @@ func TestConvertToModelBundle(t *testing.T) {
 	assert.Equal(t, semver.MustParse("0.1.0"), b.Version)
 }
 
+func TestConvertToModelBundleWithBuildMetadata(t *testing.T) {
+	// Test that build metadata in the version field is extracted into the release field
+	bundleName := "foo-v1.3.1-0.1776877589.p"
+	cfg := DeclarativeConfig{
+		Packages: []Package{newTestPackage("foo", "alpha", svgSmallCircle)},
+		Channels: []Channel{newTestChannel("foo", "alpha", ChannelEntry{Name: bundleName})},
+		Bundles: []Bundle{newTestBundle("foo", "1.3.1", func(b *Bundle) {
+			// Normalized name format for bundles with release: <pkg>-v<version>-<release>
+			b.Name = bundleName
+			b.Properties = []property.Property{
+				// Version has build metadata that should be extracted
+				property.MustBuildPackage("foo", "1.3.1+0.1776877589.p"),
+			}
+		})},
+	}
+	m, err := ConvertToModel(cfg)
+	require.NoError(t, err)
+
+	pkg, ok := m["foo"]
+	require.True(t, ok, "expected package 'foo' to be present")
+	ch, ok := pkg.Channels["alpha"]
+	require.True(t, ok, "expected channel 'alpha' to be present")
+	b, ok := ch.Bundles[bundleName]
+	require.True(t, ok, "expected bundle %q to be present", bundleName)
+
+	// Verify version was extracted (without build metadata)
+	assert.Equal(t, semver.MustParse("1.3.1"), b.Version)
+
+	// Verify release was extracted from build metadata
+	expectedRelease := semver.MustParse("0.0.0-0.1776877589.p")
+	assert.Equal(t, expectedRelease, b.Release)
+
+	// Verify the properties were updated correctly
+	assert.Len(t, b.PropertiesP.Packages, 1)
+	assert.Equal(t, "foo", b.PropertiesP.Packages[0].PackageName)
+	assert.Equal(t, "1.3.1", b.PropertiesP.Packages[0].Version)
+	assert.Equal(t, "0.1776877589.p", b.PropertiesP.Packages[0].Release)
+}
+
 func TestConvertToModelRoundtrip(t *testing.T) {
 	expected := buildValidDeclarativeConfig(validDeclarativeConfigSpec{IncludeUnrecognized: true, IncludeDeprecations: false}) // TODO: turn on deprecation when we have model-->declcfg conversion
 
@@ -640,6 +725,99 @@ func hasError(expectedError string) require.ErrorAssertionFunc {
 		}
 		t.Errorf("expected error to be `%s`, got `%s`", expectedError, actualError)
 		t.FailNow()
+	}
+}
+
+func TestExtractBuildMetadataFromProperties(t *testing.T) {
+	tests := []struct {
+		name           string
+		input          []property.Property
+		expected       []property.Property
+		expectError    bool
+		errorSubstring string
+	}{
+		{
+			name: "ExtractBuildMetadata",
+			input: []property.Property{
+				property.MustBuildPackage("foo", "1.3.1+0.1776877589.p"),
+				property.MustBuildGVK("apps", "v1", "Deployment"),
+			},
+			expected: []property.Property{
+				property.MustBuildPackageRelease("foo", "1.3.1", "0.1776877589.p"),
+				property.MustBuildGVK("apps", "v1", "Deployment"),
+			},
+			expectError: false,
+		},
+		{
+			name: "NoExtractionWhenReleaseExists",
+			input: []property.Property{
+				property.MustBuildPackageRelease("foo", "1.3.1+metadata", "existing.release"),
+			},
+			expected: []property.Property{
+				property.MustBuildPackageRelease("foo", "1.3.1+metadata", "existing.release"),
+			},
+			expectError: false,
+		},
+		{
+			name: "NoExtractionWhenNoBuildMetadata",
+			input: []property.Property{
+				property.MustBuildPackage("foo", "1.3.1"),
+			},
+			expected: []property.Property{
+				property.MustBuildPackageRelease("foo", "1.3.1", ""),
+			},
+			expectError: false,
+		},
+		{
+			name: "NonPackagePropertiesPassThrough",
+			input: []property.Property{
+				property.MustBuildGVK("apps", "v1", "Deployment"),
+				property.MustBuildGVKRequired("core", "v1", "Service"),
+			},
+			expected: []property.Property{
+				property.MustBuildGVK("apps", "v1", "Deployment"),
+				property.MustBuildGVKRequired("core", "v1", "Service"),
+			},
+			expectError: false,
+		},
+		{
+			name: "MultipleBuildMetadataSections",
+			input: []property.Property{
+				property.MustBuildPackage("foo", "1.0.0+build.1+build.2"),
+			},
+			expected: []property.Property{
+				property.MustBuildPackageRelease("foo", "1.0.0", "build.1+build.2"),
+			},
+			expectError: false,
+		},
+		{
+			name:        "EmptyProperties",
+			input:       []property.Property{},
+			expected:    []property.Property{},
+			expectError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := extractBuildMetadataFromProperties(tt.input)
+
+			if tt.expectError {
+				require.Error(t, err)
+				if tt.errorSubstring != "" {
+					require.Contains(t, err.Error(), tt.errorSubstring)
+				}
+			} else {
+				require.NoError(t, err)
+				require.Len(t, result, len(tt.expected), "property count mismatch")
+
+				// Compare properties
+				for i := range tt.expected {
+					assert.Equal(t, tt.expected[i].Type, result[i].Type, "property %d type mismatch", i)
+					assert.JSONEq(t, string(tt.expected[i].Value), string(result[i].Value), "property %d value mismatch", i)
+				}
+			}
+		})
 	}
 }
 

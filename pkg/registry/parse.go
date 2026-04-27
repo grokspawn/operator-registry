@@ -259,4 +259,3 @@ func propertySet(properties []Property) []Property {
 
 	return set
 }
-

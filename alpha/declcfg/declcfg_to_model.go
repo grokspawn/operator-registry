@@ -1,7 +1,9 @@
 package declcfg
 
 import (
+	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/blang/semver/v4"
 	"go.podman.io/image/v5/docker/reference"
@@ -116,7 +118,16 @@ func ConvertToModel(cfg DeclarativeConfig) (model.Model, error) {
 		bundles.Insert(b.Name)
 		packageBundles[b.Package] = bundles
 
-		props, err := property.Parse(b.Properties)
+		// Extract build metadata from package property if needed.
+		// This handles backwards compatibility for bundles that encoded
+		// release info in semver build metadata (e.g., 1.3.1+0.1776877589.p)
+		// during SQLite->FBC migration.
+		processedProps, err := extractBuildMetadataFromProperties(b.Properties)
+		if err != nil {
+			return nil, fmt.Errorf("extract build metadata for bundle %q: %v", b.Name, err)
+		}
+
+		props, err := property.Parse(processedProps)
 		if err != nil {
 			return nil, fmt.Errorf("parse properties for bundle %q: %v", b.Name, err)
 		}
@@ -290,4 +301,37 @@ func validateImagePullSpec(pullSpec, errFormat string, errArgs ...interface{}) e
 		return fmt.Errorf(errFormat+": invalid image pull spec %q: %w", append(errArgs, pullSpec, err)...)
 	}
 	return nil
+}
+
+// extractBuildMetadataFromProperties processes bundle properties and extracts
+// build metadata from the package property version field into the release field.
+// This handles backwards compatibility for bundles that encoded release info in
+// semver build metadata (e.g., 1.3.1+0.1776877589.p) during SQLite->FBC migration.
+func extractBuildMetadataFromProperties(props []property.Property) ([]property.Property, error) {
+	out := make([]property.Property, 0, len(props))
+	for i, p := range props {
+		if p.Type != property.TypePackage {
+			out = append(out, p)
+			continue
+		}
+
+		// Parse the package property to check for build metadata
+		var pkg property.Package
+		if err := json.Unmarshal(p.Value, &pkg); err != nil {
+			return nil, property.ParseError{Idx: i, Typ: p.Type, Err: err}
+		}
+
+		// If release is empty but version has build metadata, extract it.
+		if pkg.Release == "" && strings.Contains(pkg.Version, "+") {
+			parts := strings.SplitN(pkg.Version, "+", 2)
+			if len(parts) == 2 {
+				pkg.Version = parts[0]
+				pkg.Release = parts[1]
+			}
+		}
+
+		// Rebuild the property with potentially extracted release
+		out = append(out, property.MustBuildPackageRelease(pkg.PackageName, pkg.Version, pkg.Release))
+	}
+	return out, nil
 }
