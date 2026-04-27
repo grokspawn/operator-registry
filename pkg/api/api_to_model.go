@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/blang/semver/v4"
 
@@ -60,10 +61,26 @@ func convertAPIBundleToModelProperties(b *Bundle) ([]property.Property, error) {
 			providedGVKs[k] = struct{}{}
 		case property.TypePackage:
 			foundPackageProperty = true
-			out = append(out, property.Property{
-				Type:  property.TypePackage,
-				Value: json.RawMessage(p.Value),
-			})
+			// Parse the package property to check for build metadata
+			var pkg property.Package
+			if err := json.Unmarshal(json.RawMessage(p.Value), &pkg); err != nil {
+				return nil, property.ParseError{Idx: i, Typ: p.Type, Err: err}
+			}
+
+			// If release is empty but version has build metadata, extract it.
+			// This handles backwards compatibility for bundles that encoded
+			// release info in semver build metadata (e.g., 1.3.1+0.1776877589.p)
+			// during SQLite->FBC migration.
+			if pkg.Release == "" && strings.Contains(pkg.Version, "+") {
+				parts := strings.SplitN(pkg.Version, "+", 2)
+				if len(parts) == 2 {
+					pkg.Version = parts[0]
+					pkg.Release = parts[1]
+				}
+			}
+
+			// Rebuild the property with potentially extracted release
+			out = append(out, property.MustBuildPackageRelease(pkg.PackageName, pkg.Version, pkg.Release))
 		default:
 			out = append(out, property.Property{
 				Type:  p.Type,
