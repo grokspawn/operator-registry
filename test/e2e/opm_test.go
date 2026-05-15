@@ -21,10 +21,7 @@ import (
 	"github.com/operator-framework/operator-registry/pkg/image/containerdregistry"
 	"github.com/operator-framework/operator-registry/pkg/image/execregistry"
 	"github.com/operator-framework/operator-registry/pkg/lib/bundle"
-	"github.com/operator-framework/operator-registry/pkg/lib/indexer"
-	lregistry "github.com/operator-framework/operator-registry/pkg/lib/registry"
 	"github.com/operator-framework/operator-registry/pkg/registry"
-	"github.com/operator-framework/operator-registry/pkg/sqlite"
 )
 
 var (
@@ -244,30 +241,6 @@ func exportIndexImageWith(containerTool string) error {
 	return indexExporter.ExportFromIndex(request)
 }
 
-func initialize() error {
-	tmpDB, err := os.CreateTemp("./", "index_tmp.db")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(tmpDB.Name())
-
-	db, err := sqlite.Open(tmpDB.Name())
-	if err != nil {
-		return err
-	}
-	defer db.Close()
-
-	dbLoader, err := sqlite.NewSQLLiteLoader(db)
-	if err != nil {
-		return err
-	}
-	if err := dbLoader.Migrate(context.TODO()); err != nil {
-		return err
-	}
-
-	loader := sqlite.NewSQLLoaderForDirectory(dbLoader, "downloaded")
-	return loader.Populate()
-}
 
 var _ = BeforeEach(func() {
 	bundleImage = imageRegistry + "/e2e-bundle"
