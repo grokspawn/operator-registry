@@ -20,13 +20,6 @@ func Validate(ctx context.Context, root fs.FS) error {
 	if err != nil {
 		return err
 	}
-	// Validate the config using model validation:
-	// This will convert declcfg objects to intermediate model objects that are
-	// also used for serve and add commands. The conversion process will run
-	// validation for the model objects and ensure they are valid.
-	_, err = declcfg.ConvertToModel(*cfg)
-	if err != nil {
-		return err
-	}
-	return nil
+	// Validate the config
+	return declcfg.Validate(*cfg)
 }

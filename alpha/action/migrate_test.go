@@ -87,7 +87,7 @@ func TestMigrate(t *testing.T) {
 	}
 }
 
-func newMigrateRegistry(t *testing.T) (image.Registry, error) {
+func newMigrateRegistry(_ *testing.T) (image.Registry, error) {
 	subDeclcfgImage, err := fs.Sub(declcfgImage, "testdata/foo-index-v0.2.0-declcfg")
 	if err != nil {
 		return nil, err

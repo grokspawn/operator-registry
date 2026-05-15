@@ -79,7 +79,6 @@ func TestMain(m *testing.M) {
 		}
 	}()
 
-
 	fbcDeprecationStore, err := fbcCacheFromFs(validFS, filepath.Join(tmpDir, "deprecation-cache"))
 	if err != nil {
 		logrus.Fatalf("failed to create deprecation cache: %v", err)

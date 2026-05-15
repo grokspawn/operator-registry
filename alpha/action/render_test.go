@@ -998,7 +998,7 @@ var bundleImageV2NoCSVRelatedImages embed.FS
 //go:embed testdata/foo-index-v0.2.0-declcfg/foo/*
 var declcfgImage embed.FS
 
-func newRegistry(t *testing.T) (image.Registry, error) {
+func newRegistry(_ *testing.T) (image.Registry, error) {
 	subDeclcfgImage, err := fs.Sub(declcfgImage, "testdata/foo-index-v0.2.0-declcfg")
 	if err != nil {
 		return nil, err

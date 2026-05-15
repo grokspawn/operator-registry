@@ -132,42 +132,61 @@ func (r Render) imageToDeclcfg(ctx context.Context, imageRef string) (*declcfg.D
 		return nil, fmt.Errorf("failed to unpack image %q: %v", ref, err)
 	}
 
-	var cfg *declcfg.DeclarativeConfig
-	if configsDir, ok := labels[containertools.ConfigsLocationLabel]; ok {
-		if !r.AllowedRefMask.Allowed(RefDCImage) {
-			return nil, fmt.Errorf("cannot render declarative config image: %w", ErrNotAllowed)
-		}
-		cfg, err = declcfg.LoadFS(ctx, os.DirFS(filepath.Join(tmpDir, configsDir)))
-		if err != nil {
-			return nil, err
-		}
-	} else if _, ok := labels[bundle.PackageLabel]; ok {
-		if !r.AllowedRefMask.Allowed(RefBundleImage) {
-			return nil, fmt.Errorf("cannot render bundle image: %w", ErrNotAllowed)
-		}
-		img, err := registry.NewImageInput(ref, tmpDir)
-		if err != nil {
-			return nil, err
-		}
-
-		bundle, err := bundleToDeclcfg(img.Bundle)
-		if err != nil {
-			return nil, err
-		}
-		cfg = &declcfg.DeclarativeConfig{Bundles: []declcfg.Bundle{*bundle}}
-	} else {
-		labelKeys := sets.StringKeySet(labels)
-		labelVals := []string{}
-		for _, k := range labelKeys.List() {
-			labelVals = append(labelVals, fmt.Sprintf("  %s=%s", k, labels[k]))
-		}
-		if len(labelVals) > 0 {
-			return nil, fmt.Errorf("render %q: image type could not be determined, found labels\n%s", ref, strings.Join(labelVals, "\n"))
-		} else {
-			return nil, fmt.Errorf("render %q: image type could not be determined: image has no labels", ref)
-		}
+	cfg, err := r.renderImageConfig(ctx, ref, tmpDir, labels)
+	if err != nil {
+		return nil, err
 	}
 	return cfg, nil
+}
+
+func (r Render) renderImageConfig(ctx context.Context, ref image.SimpleReference, tmpDir string, labels map[string]string) (*declcfg.DeclarativeConfig, error) {
+	if configsDir, ok := labels[containertools.ConfigsLocationLabel]; ok {
+		return r.renderDeclcfgImage(ctx, tmpDir, configsDir)
+	}
+	if _, ok := labels[bundle.PackageLabel]; ok {
+		return r.renderBundleImage(ref, tmpDir)
+	}
+	return nil, r.imageTypeError(ref.String(), labels)
+}
+
+func (r Render) renderDeclcfgImage(ctx context.Context, tmpDir, configsDir string) (*declcfg.DeclarativeConfig, error) {
+	if !r.AllowedRefMask.Allowed(RefDCImage) {
+		return nil, fmt.Errorf("cannot render declarative config image: %w", ErrNotAllowed)
+	}
+	cfg, err := declcfg.LoadFS(ctx, os.DirFS(filepath.Join(tmpDir, configsDir)))
+	if err != nil {
+		return nil, err
+	}
+	return cfg, nil
+}
+
+func (r Render) renderBundleImage(ref image.SimpleReference, tmpDir string) (*declcfg.DeclarativeConfig, error) {
+	if !r.AllowedRefMask.Allowed(RefBundleImage) {
+		return nil, fmt.Errorf("cannot render bundle image: %w", ErrNotAllowed)
+	}
+	img, err := registry.NewImageInput(ref, tmpDir)
+	if err != nil {
+		return nil, err
+	}
+
+	bundle, err := bundleToDeclcfg(img.Bundle)
+	if err != nil {
+		return nil, err
+	}
+	return &declcfg.DeclarativeConfig{Bundles: []declcfg.Bundle{*bundle}}, nil
+}
+
+func (r Render) imageTypeError(ref string, labels map[string]string) error {
+	labelKeys := sets.StringKeySet(labels)
+	labelList := labelKeys.List()
+	labelVals := make([]string, 0, len(labelList))
+	for _, k := range labelList {
+		labelVals = append(labelVals, fmt.Sprintf("  %s=%s", k, labels[k]))
+	}
+	if len(labelVals) > 0 {
+		return fmt.Errorf("render %q: image type could not be determined, found labels\n%s", ref, strings.Join(labelVals, "\n"))
+	}
+	return fmt.Errorf("render %q: image type could not be determined: image has no labels", ref)
 }
 
 func bundleToDeclcfg(bundle *registry.Bundle) (*declcfg.Bundle, error) {
