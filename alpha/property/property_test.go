@@ -6,6 +6,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/operator-framework/api/pkg/operators/v1alpha1"
 )
 
 func TestValidate(t *testing.T) {
@@ -63,6 +65,174 @@ func TestValidate(t *testing.T) {
 			s.assertion(t, err)
 		})
 	}
+}
+
+func TestCustomResourceDefinitionsConversion(t *testing.T) {
+	input := v1alpha1.CustomResourceDefinitions{
+		Owned: []v1alpha1.CRDDescription{{
+			Name:        "widgets.example.com",
+			Version:     "v1",
+			Kind:        "Widget",
+			DisplayName: "Widget",
+			Description: "A widget",
+			Resources: []v1alpha1.APIResourceReference{{
+				Name:    "services",
+				Kind:    "Service",
+				Version: "v1",
+			}},
+			SpecDescriptors:   []v1alpha1.SpecDescriptor{{Path: "spec.size"}},
+			StatusDescriptors: []v1alpha1.StatusDescriptor{{Path: "status.phase"}},
+			ActionDescriptor:  []v1alpha1.ActionDescriptor{{Path: "action"}},
+		}},
+		Required: []v1alpha1.CRDDescription{{
+			Name:              "gadgets.example.com",
+			Version:           "v1",
+			Kind:              "Gadget",
+			Resources:         []v1alpha1.APIResourceReference{{Kind: "ConfigMap"}},
+			SpecDescriptors:   []v1alpha1.SpecDescriptor{{Path: "spec.name"}},
+			StatusDescriptors: []v1alpha1.StatusDescriptor{{Path: "status.ready"}},
+			ActionDescriptor:  []v1alpha1.ActionDescriptor{{Path: "restart"}},
+		}},
+	}
+
+	actual := newCustomResourceDefinitions(input)
+	assert.Equal(t, CustomResourceDefinitions{
+		Owned: []CRDDescription{{
+			Name:        "widgets.example.com",
+			Version:     "v1",
+			Kind:        "Widget",
+			DisplayName: "Widget",
+			Description: "A widget",
+		}},
+		Required: []CRDDescription{{
+			Name:    "gadgets.example.com",
+			Version: "v1",
+			Kind:    "Gadget",
+		}},
+	}, actual)
+	assert.Equal(t, v1alpha1.CustomResourceDefinitions{
+		Owned: []v1alpha1.CRDDescription{{
+			Name:        "widgets.example.com",
+			Version:     "v1",
+			Kind:        "Widget",
+			DisplayName: "Widget",
+			Description: "A widget",
+		}},
+		Required: []v1alpha1.CRDDescription{{
+			Name:    "gadgets.example.com",
+			Version: "v1",
+			Kind:    "Gadget",
+		}},
+	}, actual.ToV1Alpha1())
+}
+
+func TestAPIServiceDefinitionsConversion(t *testing.T) {
+	input := v1alpha1.APIServiceDefinitions{
+		Owned: []v1alpha1.APIServiceDescription{{
+			Name:              "widgets.example.com",
+			Group:             "example.com",
+			Version:           "v1",
+			Kind:              "Widget",
+			DeploymentName:    "widget-controller",
+			ContainerPort:     8443,
+			DisplayName:       "Widget",
+			Description:       "A widget",
+			Resources:         []v1alpha1.APIResourceReference{{Kind: "ConfigMap"}},
+			SpecDescriptors:   []v1alpha1.SpecDescriptor{{Path: "spec.size"}},
+			StatusDescriptors: []v1alpha1.StatusDescriptor{{Path: "status.phase"}},
+			ActionDescriptor:  []v1alpha1.ActionDescriptor{{Path: "restart"}},
+		}},
+		Required: []v1alpha1.APIServiceDescription{{
+			Name:              "gadgets.example.com",
+			Group:             "example.com",
+			Version:           "v1",
+			Kind:              "Gadget",
+			Resources:         []v1alpha1.APIResourceReference{{Kind: "ConfigMap"}},
+			SpecDescriptors:   []v1alpha1.SpecDescriptor{{Path: "spec.name"}},
+			StatusDescriptors: []v1alpha1.StatusDescriptor{{Path: "status.ready"}},
+			ActionDescriptor:  []v1alpha1.ActionDescriptor{{Path: "restart"}},
+		}},
+	}
+
+	actual := newAPIServiceDefinitions(input)
+	assert.Equal(t, APIServiceDefinitions{
+		Owned: []APIServiceDescription{{
+			Name:        "widgets.example.com",
+			Group:       "example.com",
+			Version:     "v1",
+			Kind:        "Widget",
+			DisplayName: "Widget",
+			Description: "A widget",
+		}},
+		Required: []APIServiceDescription{{
+			Name:    "gadgets.example.com",
+			Group:   "example.com",
+			Version: "v1",
+			Kind:    "Gadget",
+		}},
+	}, actual)
+	assert.Equal(t, v1alpha1.APIServiceDefinitions{
+		Owned: []v1alpha1.APIServiceDescription{{
+			Name:        "widgets.example.com",
+			Group:       "example.com",
+			Version:     "v1",
+			Kind:        "Widget",
+			DisplayName: "Widget",
+			Description: "A widget",
+		}},
+		Required: []v1alpha1.APIServiceDescription{{
+			Name:    "gadgets.example.com",
+			Group:   "example.com",
+			Version: "v1",
+			Kind:    "Gadget",
+		}},
+	}, actual.ToV1Alpha1())
+}
+
+func TestMustBuildCSVMetadataUsesCanonicalDescriptions(t *testing.T) {
+	csv := v1alpha1.ClusterServiceVersion{
+		Spec: v1alpha1.ClusterServiceVersionSpec{
+			CustomResourceDefinitions: v1alpha1.CustomResourceDefinitions{
+				Owned: []v1alpha1.CRDDescription{{
+					Name:      "widgets.example.com",
+					Resources: []v1alpha1.APIResourceReference{{Kind: "Service"}},
+				}},
+			},
+			APIServiceDefinitions: v1alpha1.APIServiceDefinitions{
+				Owned: []v1alpha1.APIServiceDescription{{
+					Name:           "v1.example.com",
+					DeploymentName: "widget-controller",
+				}},
+			},
+		},
+	}
+
+	prop := MustBuildCSVMetadata(csv)
+	var metadata CSVMetadata
+	require.NoError(t, json.Unmarshal(prop.Value, &metadata))
+	assert.Equal(t, "widgets.example.com", metadata.CustomResourceDefinitions.Owned[0].Name)
+	assert.Equal(t, "v1.example.com", metadata.APIServiceDefinitions.Owned[0].Name)
+	assert.NotContains(t, string(prop.Value), "resources")
+	assert.NotContains(t, string(prop.Value), "deploymentName")
+}
+
+func TestCanonicalizeCSVMetadataPropertySkipsUnknownFields(t *testing.T) {
+	legacy := Property{
+		Type: TypeCSVMetadata,
+		Value: json.RawMessage(`{"apiServiceDefinitions":{"owned":[{"name":"v1.example.com","group":"example.com","version":"v1","kind":"Widget","deploymentName":"controller","resources":[{"kind":"Service"}]}]},"crdDescriptions":{"owned":[{"name":"widgets.example.com","version":"v1","kind":"Widget","resources":[{"kind":"Service"}],"specDescriptors":[{"path":"spec.size"}]}]}}`),
+	}
+
+	canonical, err := CanonicalizeCSVMetadataProperty(legacy)
+	require.NoError(t, err)
+	assert.Equal(t, TypeCSVMetadata, canonical.Type)
+	assert.NotContains(t, string(canonical.Value), "deploymentName")
+	assert.NotContains(t, string(canonical.Value), "resources")
+	assert.NotContains(t, string(canonical.Value), "specDescriptors")
+
+	var metadata CSVMetadata
+	require.NoError(t, json.Unmarshal(canonical.Value, &metadata))
+	assert.Equal(t, "example.com", metadata.APIServiceDefinitions.Owned[0].Group)
+	assert.Equal(t, "Widget", metadata.CustomResourceDefinitions.Owned[0].Kind)
 }
 
 func TestParse(t *testing.T) {

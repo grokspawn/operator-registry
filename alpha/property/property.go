@@ -68,10 +68,42 @@ type BundleObject struct {
 	Data []byte `json:"data"`
 }
 
+// APIServiceDefinitions contains the API service metadata persisted in a catalog.
+type APIServiceDefinitions struct {
+	Owned    []APIServiceDescription `json:"owned,omitempty"`
+	Required []APIServiceDescription `json:"required,omitempty"`
+}
+
+// APIServiceDescription contains the API service fields consumed by catalog clients.
+type APIServiceDescription struct {
+	Name        string `json:"name"`
+	Group       string `json:"group"`
+	Version     string `json:"version"`
+	Kind        string `json:"kind"`
+	DisplayName string `json:"displayName,omitempty"`
+	Description string `json:"description,omitempty"`
+}
+
+// CustomResourceDefinitions contains the CRD metadata persisted in a catalog.
+type CustomResourceDefinitions struct {
+	Owned    []CRDDescription `json:"owned,omitempty"`
+	Required []CRDDescription `json:"required,omitempty"`
+}
+
+// CRDDescription contains the CRD fields consumed by catalog clients.
+type CRDDescription struct {
+	Name        string `json:"name"`
+	Version     string `json:"version"`
+	Kind        string `json:"kind"`
+	DisplayName string `json:"displayName,omitempty"`
+	Description string `json:"description,omitempty"`
+}
+
+// CSVMetadata is the canonical, compact CSV metadata property representation.
 type CSVMetadata struct {
 	Annotations               map[string]string                  `json:"annotations,omitempty"`
-	APIServiceDefinitions     v1alpha1.APIServiceDefinitions     `json:"apiServiceDefinitions,omitempty"`
-	CustomResourceDefinitions v1alpha1.CustomResourceDefinitions `json:"crdDescriptions,omitempty"`
+	APIServiceDefinitions     APIServiceDefinitions              `json:"apiServiceDefinitions,omitempty"`
+	CustomResourceDefinitions CustomResourceDefinitions          `json:"crdDescriptions,omitempty"`
 	Description               string                             `json:"description,omitempty"`
 	DisplayName               string                             `json:"displayName,omitempty"`
 	InstallModes              []v1alpha1.InstallMode             `json:"installModes,omitempty"`
@@ -263,8 +295,8 @@ func MustBuildBundleObject(data []byte) Property {
 func MustBuildCSVMetadata(csv v1alpha1.ClusterServiceVersion) Property {
 	return MustBuild(&CSVMetadata{
 		Annotations:               csv.GetAnnotations(),
-		APIServiceDefinitions:     csv.Spec.APIServiceDefinitions,
-		CustomResourceDefinitions: csv.Spec.CustomResourceDefinitions,
+		APIServiceDefinitions:     newAPIServiceDefinitions(csv.Spec.APIServiceDefinitions),
+		CustomResourceDefinitions: newCustomResourceDefinitions(csv.Spec.CustomResourceDefinitions),
 		Description:               csv.Spec.Description,
 		DisplayName:               csv.Spec.DisplayName,
 		InstallModes:              csv.Spec.InstallModes,
@@ -277,4 +309,117 @@ func MustBuildCSVMetadata(csv v1alpha1.ClusterServiceVersion) Property {
 		NativeAPIs:                csv.Spec.NativeAPIs,
 		Provider:                  csv.Spec.Provider,
 	})
+}
+
+func newAPIServiceDefinitions(apis v1alpha1.APIServiceDefinitions) APIServiceDefinitions {
+	return APIServiceDefinitions{
+		Owned:    newAPIServices(apis.Owned),
+		Required: newAPIServices(apis.Required),
+	}
+}
+
+func newAPIServices(descriptions []v1alpha1.APIServiceDescription) []APIServiceDescription {
+	if descriptions == nil {
+		return nil
+	}
+	services := make([]APIServiceDescription, len(descriptions))
+	for i, description := range descriptions {
+		services[i] = APIServiceDescription{
+			Name:        description.Name,
+			Group:       description.Group,
+			Version:     description.Version,
+			Kind:        description.Kind,
+			DisplayName: description.DisplayName,
+			Description: description.Description,
+		}
+	}
+	return services
+}
+
+func newCustomResourceDefinitions(crds v1alpha1.CustomResourceDefinitions) CustomResourceDefinitions {
+	return CustomResourceDefinitions{
+		Owned:    newCRDs(crds.Owned),
+		Required: newCRDs(crds.Required),
+	}
+}
+
+func newCRDs(descriptions []v1alpha1.CRDDescription) []CRDDescription {
+	if descriptions == nil {
+		return nil
+	}
+	crds := make([]CRDDescription, len(descriptions))
+	for i, description := range descriptions {
+		crds[i] = CRDDescription{
+			Name:        description.Name,
+			Version:     description.Version,
+			Kind:        description.Kind,
+			DisplayName: description.DisplayName,
+			Description: description.Description,
+		}
+	}
+	return crds
+}
+
+// ToV1Alpha1 converts compact API service metadata to the upstream API type.
+func (d APIServiceDefinitions) ToV1Alpha1() v1alpha1.APIServiceDefinitions {
+	return v1alpha1.APIServiceDefinitions{
+		Owned:    d.apiServicesToV1Alpha1(d.Owned),
+		Required: d.apiServicesToV1Alpha1(d.Required),
+	}
+}
+
+func (d APIServiceDefinitions) apiServicesToV1Alpha1(descriptions []APIServiceDescription) []v1alpha1.APIServiceDescription {
+	if descriptions == nil {
+		return nil
+	}
+	services := make([]v1alpha1.APIServiceDescription, len(descriptions))
+	for i, description := range descriptions {
+		services[i] = v1alpha1.APIServiceDescription{
+			Name:        description.Name,
+			Group:       description.Group,
+			Version:     description.Version,
+			Kind:        description.Kind,
+			DisplayName: description.DisplayName,
+			Description: description.Description,
+		}
+	}
+	return services
+}
+
+// ToV1Alpha1 converts compact CRD metadata to the upstream API type.
+func (d CustomResourceDefinitions) ToV1Alpha1() v1alpha1.CustomResourceDefinitions {
+	return v1alpha1.CustomResourceDefinitions{
+		Owned:    d.crdsToV1Alpha1(d.Owned),
+		Required: d.crdsToV1Alpha1(d.Required),
+	}
+}
+
+func (d CustomResourceDefinitions) crdsToV1Alpha1(descriptions []CRDDescription) []v1alpha1.CRDDescription {
+	if descriptions == nil {
+		return nil
+	}
+	crds := make([]v1alpha1.CRDDescription, len(descriptions))
+	for i, description := range descriptions {
+		crds[i] = v1alpha1.CRDDescription{
+			Name:        description.Name,
+			Version:     description.Version,
+			Kind:        description.Kind,
+			DisplayName: description.DisplayName,
+			Description: description.Description,
+		}
+	}
+	return crds
+}
+
+// CanonicalizeCSVMetadataProperty decodes legacy fields and rebuilds compact JSON.
+func CanonicalizeCSVMetadataProperty(p Property) (Property, error) {
+	var metadata CSVMetadata
+	if err := json.Unmarshal(p.Value, &metadata); err != nil {
+		return Property{}, err
+	}
+	canonical, err := Build(&metadata)
+	if err != nil {
+		return Property{}, err
+	}
+	return *canonical, nil
 }

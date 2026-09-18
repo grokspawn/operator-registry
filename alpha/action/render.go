@@ -78,6 +78,9 @@ func (r Render) Run(ctx context.Context) (*declcfg.DeclarativeConfig, error) {
 		if err := r.migrate(cfg); err != nil {
 			return nil, fmt.Errorf("migrate: %v", err)
 		}
+		if err := canonicalizeCSVMetadata(cfg); err != nil {
+			return nil, fmt.Errorf("canonicalize CSV metadata: %v", err)
+		}
 
 		cfgs = append(cfgs, *cfg)
 	}
@@ -296,6 +299,24 @@ func (r Render) migrate(cfg *declcfg.DeclarativeConfig) error {
 		return nil
 	}
 	return r.Migrations.Migrate(cfg)
+}
+
+func canonicalizeCSVMetadata(cfg *declcfg.DeclarativeConfig) error {
+	for bi := range cfg.Bundles {
+		for pi := range cfg.Bundles[bi].Properties {
+			prop := cfg.Bundles[bi].Properties[pi]
+			if prop.Type != property.TypeCSVMetadata {
+				continue
+			}
+
+			canonical, err := property.CanonicalizeCSVMetadataProperty(prop)
+			if err != nil {
+				return fmt.Errorf("bundle %d property %d: %w", bi, pi, err)
+			}
+			cfg.Bundles[bi].Properties[pi] = canonical
+		}
+	}
+	return nil
 }
 
 func combineConfigs(cfgs []declcfg.DeclarativeConfig) *declcfg.DeclarativeConfig {

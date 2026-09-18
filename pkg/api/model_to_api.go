@@ -111,8 +111,8 @@ func csvMetadataToCsv(m property.CSVMetadata) v1alpha1.ClusterServiceVersion {
 			Labels:      m.Labels,
 		},
 		Spec: v1alpha1.ClusterServiceVersionSpec{
-			APIServiceDefinitions:     m.APIServiceDefinitions,
-			CustomResourceDefinitions: m.CustomResourceDefinitions,
+			APIServiceDefinitions:     m.APIServiceDefinitions.ToV1Alpha1(),
+			CustomResourceDefinitions: m.CustomResourceDefinitions.ToV1Alpha1(),
 			Description:               m.Description,
 			DisplayName:               m.DisplayName,
 			InstallModes:              m.InstallModes,
